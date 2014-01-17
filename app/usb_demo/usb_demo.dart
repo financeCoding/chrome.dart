@@ -11,6 +11,8 @@
 
 import 'dart:async';
 import 'dart:html';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:chrome/chrome_app.dart' as chrome;
 
@@ -126,9 +128,151 @@ void main() {
     chrome.usb.claimInterface(connectionHandle, adbInterface.interfaceNumber).then((d) {
       print("d = $d");
 
-      chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
+
       // TODO: Add the info object stuff.
-      chrome.usb.bulkTransfer(connectionHandle, transferInfo);
+
+      // send a connect command
+//      private void connect() {
+//        AdbMessage message = new AdbMessage();
+//        message.set(AdbMessage.A_CNXN, AdbMessage.A_VERSION, AdbMessage.MAX_PAYLOAD, "host::\0");
+//        message.write(this);
+//    }
+      // command names
+      final int A_SYNC = 0x434e5953;
+      final int A_CNXN = 0x4e584e43;
+      final int A_OPEN = 0x4e45504f;
+      final int A_OKAY = 0x59414b4f;
+      final int A_CLSE = 0x45534c43;
+      final int A_WRTE = 0x45545257;
+//
+//      // ADB protocol version
+final int A_VERSION = 0x01000000;
+//
+final int MAX_PAYLOAD = 4096;
+
+//  Send the messageBuffer then send the dataBuffer
+//      public boolean write(AdbDevice device) {
+//        synchronized (device) {
+//            UsbRequest request = device.getOutRequest();
+//            request.setClientData(this);
+//            if (request.queue(mMessageBuffer, 24)) {
+//                int length = getDataLength();
+//                if (length > 0) {
+//                    request = device.getOutRequest();
+//                    request.setClientData(this);
+//                    if (request.queue(mDataBuffer, length)) {
+//                        return true;
+//                    } else {
+//                        device.releaseOutRequest(request);
+//                        return false;
+//                    }
+//                }
+//                return true;
+//            } else {
+//                device.releaseOutRequest(request);
+//                return false;
+//            }
+//        }
+//    }
+
+      int checksum(ByteData data) {
+        int result = 0;
+
+        var buffer = new Uint8List.view(data.buffer);
+
+        for (int i = 0; i < buffer.length; i++) {
+            int x = buffer[i];
+            // dang, no unsigned ints in java
+            if (x < 0) x += 256;
+            result += x;
+        }
+        return result;
+      }
+
+//      public AdbMessage() {
+//        mMessageBuffer = ByteBuffer.allocate(24);
+//        mDataBuffer = ByteBuffer.allocate(MAX_PAYLOAD);
+//        mMessageBuffer.order(ByteOrder.LITTLE_ENDIAN);
+//        mDataBuffer.order(ByteOrder.LITTLE_ENDIAN);
+//    }
+//
+//    // sets the fields in the command header
+//    public void set(int command, int arg0, int arg1, byte[] data) {
+//        mMessageBuffer.putInt(0, command);
+//        mMessageBuffer.putInt(4, arg0);
+//        mMessageBuffer.putInt(8, arg1);
+//        mMessageBuffer.putInt(12, (data == null ? 0 : data.length));
+//        mMessageBuffer.putInt(16, (data == null ? 0 : checksum(data)));
+//        mMessageBuffer.putInt(20, command ^ 0xFFFFFFFF);
+//        if (data != null) {
+//            mDataBuffer.put(data, 0, data.length);
+//        }
+//    }
+//
+//    public void set(int command, int arg0, int arg1) {
+//        set(command, arg0, arg1, (byte[])null);
+//    }
+//    public void set(int command, int arg0, int arg1, String data) {
+//        // add trailing zero
+//        data += "\0";
+//        set(command, arg0, arg1, data.getBytes());
+//    }
+
+      ByteData mMessageBuffer = new ByteData(24);
+      ByteData mDataBuffer = new ByteData(MAX_PAYLOAD);
+
+      String data = "host::\0";
+      Uint8List dataAsUint8List = new Uint8List.fromList(data.codeUnits);
+      Uint8List mDataBufferBuffer = new Uint8List.view(mDataBuffer.buffer);
+      for (int i = 0; i < dataAsUint8List.length; i++) {
+        mDataBufferBuffer[i] = dataAsUint8List[i];
+      }
+
+      //message.set(AdbMessage.A_CNXN, AdbMessage.A_VERSION, AdbMessage.MAX_PAYLOAD, "host::\0");
+      mMessageBuffer.setInt32(0, A_CNXN, Endianness.LITTLE_ENDIAN);
+      mMessageBuffer.setInt32(4, A_VERSION, Endianness.LITTLE_ENDIAN);
+      mMessageBuffer.setInt32(8, MAX_PAYLOAD, Endianness.LITTLE_ENDIAN);
+      mMessageBuffer.setInt32(12, data.length, Endianness.LITTLE_ENDIAN);
+      mMessageBuffer.setInt32(16, checksum(mDataBuffer), Endianness.LITTLE_ENDIAN);
+      mMessageBuffer.setInt32(20, A_CNXN ^ 0xFFFFFFFF, Endianness.LITTLE_ENDIAN);
+
+
+      chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
+      transferInfo.direction = outDescriptor.direction;
+      transferInfo.endpoint = outDescriptor.address;
+//      transferInfo.data = new chrome.ArrayBuffer.fromString("hello world\0");
+//      transferInfo.length = "hello world\0".length;
+      chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(mMessageBuffer.buffer).toList());
+      print("ab.getBytes().length = ${ab.getBytes().length}");
+      transferInfo.length = ab.getBytes().length;
+      transferInfo.data = ab;
+
+      chrome.usb.bulkTransfer(connectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
+        print("result = ${result}");
+        print("result.resultCode = ${result.resultCode}");
+        print("result.data = ${result.data}");
+        print("result.data.getBytes() = ${result.data.getBytes()}");
+        print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
+
+        chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(mDataBuffer.buffer).toList());
+        chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
+        transferInfoData.direction = outDescriptor.direction;
+        transferInfoData.endpoint = outDescriptor.address;
+
+        print("abData.getBytes().length = ${abData.getBytes().length}");
+        transferInfoData.length = abData.getBytes().length;
+        transferInfoData.data = abData;
+        chrome.usb.bulkTransfer(connectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
+          print("resultData = ${resultData}");
+          print("resultData.resultCode = ${resultData.resultCode}");
+          print("resultData.data = ${resultData.data}");
+          print("resultData.data.getBytes() = ${resultData.data.getBytes()}");
+          print(UTF8.decode(resultData.data.getBytes(), allowMalformed: true));
+
+          // TODO: Listen for OKAY
+        });
+
+      });
 
     });
   });
