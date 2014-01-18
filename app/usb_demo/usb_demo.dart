@@ -17,6 +17,19 @@ import 'dart:typed_data';
 import 'package:chrome/chrome_app.dart' as chrome;
 
 void main() {
+  // command names
+  final int A_SYNC = 0x434e5953;
+  final int A_CNXN = 0x4e584e43;
+  final int A_OPEN = 0x4e45504f;
+  final int A_OKAY = 0x59414b4f;
+  final int A_CLSE = 0x45534c43;
+  final int A_WRTE = 0x45545257;
+//
+//      // ADB protocol version
+  final int A_VERSION = 0x01000000;
+  //
+  final int MAX_PAYLOAD = 4096;
+
   chrome.Device androidDevice;
   chrome.InterfaceDescriptor adbInterface;
   chrome.EndpointDescriptor inDescriptor;
@@ -137,18 +150,7 @@ void main() {
 //        message.set(AdbMessage.A_CNXN, AdbMessage.A_VERSION, AdbMessage.MAX_PAYLOAD, "host::\0");
 //        message.write(this);
 //    }
-      // command names
-      final int A_SYNC = 0x434e5953;
-      final int A_CNXN = 0x4e584e43;
-      final int A_OPEN = 0x4e45504f;
-      final int A_OKAY = 0x59414b4f;
-      final int A_CLSE = 0x45534c43;
-      final int A_WRTE = 0x45545257;
-//
-//      // ADB protocol version
-final int A_VERSION = 0x01000000;
-//
-final int MAX_PAYLOAD = 4096;
+
 
 //  Send the messageBuffer then send the dataBuffer
 //      public boolean write(AdbDevice device) {
@@ -221,7 +223,7 @@ final int MAX_PAYLOAD = 4096;
       ByteData mMessageBuffer = new ByteData(24);
       ByteData mDataBuffer = new ByteData(MAX_PAYLOAD);
 
-      String data = "host::\0";
+      String data = "host::";
       Uint8List dataAsUint8List = new Uint8List.fromList(data.codeUnits);
       Uint8List mDataBufferBuffer = new Uint8List.view(mDataBuffer.buffer);
       for (int i = 0; i < dataAsUint8List.length; i++) {
@@ -266,14 +268,26 @@ final int MAX_PAYLOAD = 4096;
           print("resultData = ${resultData}");
           print("resultData.resultCode = ${resultData.resultCode}");
           print("resultData.data = ${resultData.data}");
-          print("resultData.data.getBytes() = ${resultData.data.getBytes()}");
+          print("resultData.data.getBytes() = ${resultData.data.getBytes().map((int e) => '0x${e.toRadixString(16)}')}");
           print(UTF8.decode(resultData.data.getBytes(), allowMalformed: true));
-
-          // TODO: Listen for OKAY
         });
-
       });
 
+    });
+  });
+
+  ButtonElement readitButton = querySelector("#readit");
+  readitButton.onClick.listen((e) {
+    chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
+    transferInfo.direction = inDescriptor.direction;
+    transferInfo.endpoint = inDescriptor.address;
+    transferInfo.length = 24;
+    chrome.usb.bulkTransfer(connectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
+      print("result = ${result}");
+      print("result.resultCode = ${result.resultCode}");
+      print("result.data = ${result.data}");
+      print("result.data.getBytes() = ${result.data.getBytes()}");
+      print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
     });
   });
 }
