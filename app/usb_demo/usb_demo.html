@@ -4,6 +4,30 @@
   <head>
     <meta charset="utf-8">
     <title>USB Sample app</title>
+    
+    <script type="text/javascript" src="crypto_support/jsrsasign/ext/jsbn.js"></script>
+    <script type="text/javascript" src="crypto_support/jsrsasign/ext/jsbn2.js"></script>
+    <script type="text/javascript" src="crypto_support/jsrsasign/ext/rsa.js"></script>
+    <script type="text/javascript" src="crypto_support/jsrsasign/ext/rsa2.js"></script>
+    <script type="text/javascript" src="crypto_support/jsrsasign/ext/base64.js"></script>
+    
+    <!-- for crypto.js -->
+    <script src="crypto_support/yahoo/yahoo-min.js"></script>
+    <script src="crypto_support/components/core.js"></script>
+    <script src="crypto_support/components/md5.js"></script>
+    <script src="crypto_support/components/sha1.js"></script>
+    <script src="crypto_support/components/sha256.js"></script>
+    <script src="crypto_support/components/ripemd160.js"></script>
+    <script src="crypto_support/components/x64-core.js"></script>
+    <script src="crypto_support/components/sha512.js"></script>
+    
+    <script type="text/javascript" src="crypto_support/jsrsasign/rsapem-1.1.js"></script>
+    <script type="text/javascript" src="crypto_support/jsrsasign/rsasign-1.2.js"></script>
+    <script type="text/javascript" src="crypto_support/jsrsasign/asn1hex-1.1.js"></script>
+    <script type="text/javascript" src="crypto_support/jsrsasign/x509-1.1.js"></script>
+    <script type="text/javascript" src="crypto_support/jsrsasign/crypto-1.1.js"></script>
+
+    <script type="text/javascript" src="crypto_functions.js"></script>
   </head>
   <body>
     <h1>Chrome APIs demo app</h1>
@@ -14,6 +38,8 @@
       <button id="clickit">find it</button>
       <button id="openit">open it</button>
       <button id="readit">read it</button>
+      <button id="signit">sign it</button>
+      <button id="testit">test it</button>
     </div>
 
     <script src="packages/browser/interop.js"></script>
