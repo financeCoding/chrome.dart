@@ -68,7 +68,8 @@ final int A_AUTH = 0x48545541;
 
 // ADB protocol version
 final int A_VERSION = 0x01000000;
-//
+
+final int MESSAGE_SIZE_PAYLOAD = 24;
 final int MAX_PAYLOAD = 4096;
 final int ADB_VERSION_MINOR = 0; // Used for help/version information
 
@@ -112,6 +113,34 @@ ByteData stringToByteData(String input) {
   return byteData;
 }
 
+String stringByteData(ByteData b) {
+  StringBuffer sb = new StringBuffer();
+  sb.write("[");
+  Uint8List u8DataBufferView = new Uint8List.view(b.buffer);
+  for (int i = 0; i < u8DataBufferView.length; i++) {
+    if (i+1 != u8DataBufferView.length) {
+      sb.write("${u8DataBufferView[i].toRadixString(16)}, ");
+    } else {
+      sb.write("${u8DataBufferView[i].toRadixString(16)}]");
+    }
+  }
+
+  return sb.toString();
+}
+
+String hexStringToString(String input) {
+  List<int> l = [];
+  for (int j = 0; j < input.length - 1; j+=2) {
+    String b = input[j] + input[j+1];
+    l.add(int.parse(b, radix: 16));
+  }
+
+  String s = new String.fromCharCodes(l);
+  return s;
+}
+
+
+
 class AdbMessage {
   /*
   struct message {
@@ -131,7 +160,7 @@ class AdbMessage {
   final CHECKSUM_OFFSET = 16;
   final MAGIC_OFFSET = 20;
 
-  ByteData messageBuffer = new ByteData(24);
+  ByteData messageBuffer = new ByteData(MESSAGE_SIZE_PAYLOAD);
   ByteData dataBuffer;
 
   int get command =>
@@ -142,10 +171,10 @@ class AdbMessage {
 
 
   int get arg0 =>
-      messageBuffer.getInt32(ARG1_OFFSET, Endianness.LITTLE_ENDIAN);
+      messageBuffer.getInt32(ARG0_OFFSET, Endianness.LITTLE_ENDIAN);
 
   void set arg0(int value) =>
-      messageBuffer.setInt32(ARG1_OFFSET, value, Endianness.LITTLE_ENDIAN);
+      messageBuffer.setInt32(ARG0_OFFSET, value, Endianness.LITTLE_ENDIAN);
 
   int get arg1 =>
       messageBuffer.getInt32(ARG1_OFFSET, Endianness.LITTLE_ENDIAN);
@@ -437,7 +466,7 @@ void main() {
     chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
     transferInfo.direction = inDescriptor.direction;
     transferInfo.endpoint = inDescriptor.address;
-    transferInfo.length = 24;
+    transferInfo.length = MESSAGE_SIZE_PAYLOAD;
     chrome.usb.bulkTransfer(connectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
       print("result = ${result}");
       print("result.resultCode = ${result.resultCode}");
@@ -446,8 +475,7 @@ void main() {
       print("resultData.data.getBytes() = ${result.data.getBytes().map((int e) => '0x${e.toRadixString(16)}').toList()}");
       print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
 
-
-// Read back a mMessageBuffer for AUTH response
+      // Read back a mMessageBuffer for AUTH response
       AdbMessage readAdbMessage = new AdbMessage.fromMessageBufferBytes(result.data.getBytes());
 
       print("readAdbMessage = ${readAdbMessage}");
@@ -511,20 +539,14 @@ void main() {
         print(UTF8.decode(resultData.data.getBytes(), allowMalformed: true));
 
         // SEND OVER RSAPUBLICKEY(3)
-        ByteData byteDataPubKey = stringToByteData(hexStringPubKey);
-        print("byteDataPubKey.buffer.lengthInBytes = ${byteDataPubKey.buffer.lengthInBytes}");
-        ByteData mMessageBuffer = new ByteData(24);
-        //message.set(AdbMessage.A_CNXN, AdbMessage.A_VERSION, AdbMessage.MAX_PAYLOAD, "host::\0");
-        mMessageBuffer.setInt32(0, A_AUTH, Endianness.LITTLE_ENDIAN);
-        mMessageBuffer.setInt32(4, AUTH_RSAPUBLICKEY, Endianness.LITTLE_ENDIAN);
-        mMessageBuffer.setInt32(8, 0, Endianness.LITTLE_ENDIAN);
-        mMessageBuffer.setInt32(12, byteDataPubKey.buffer.lengthInBytes, Endianness.LITTLE_ENDIAN);
-        mMessageBuffer.setInt32(16, checksum(byteDataPubKey), Endianness.LITTLE_ENDIAN);
-        mMessageBuffer.setInt32(20, A_AUTH ^ 0xFFFFFFFF, Endianness.LITTLE_ENDIAN);
+        AdbMessage authRsaPubKeyAdbMessage = new AdbMessage(A_AUTH, AUTH_RSAPUBLICKEY, 0, hexStringToString(hexStringPubKey));
+
+        print("authRsaPubKeyAdbMessage = ${authRsaPubKeyAdbMessage}");
+
         chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
         transferInfo.direction = outDescriptor.direction;
         transferInfo.endpoint = outDescriptor.address;
-        chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(mMessageBuffer.buffer).toList());
+        chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authRsaPubKeyAdbMessage.messageBuffer.buffer).toList());
         print("ab.getBytes().length = ${ab.getBytes().length}");
         transferInfo.length = ab.getBytes().length;
         transferInfo.data = ab;
@@ -537,7 +559,7 @@ void main() {
           print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
 
           // Transfer the pubkey
-          chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(byteDataPubKey.buffer).toList());
+          chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authRsaPubKeyAdbMessage.dataBuffer.buffer).toList());
           chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
           transferInfoData.direction = outDescriptor.direction;
           transferInfoData.endpoint = outDescriptor.address;
@@ -550,72 +572,15 @@ void main() {
             print("resultData.data = ${resultData.data}");
             print("resultData.data.getBytes() = ${resultData.data.getBytes().map((int e) => '0x${e.toRadixString(16)}')}");
             print(UTF8.decode(resultData.data.getBytes(), allowMalformed: true));
-
           });
-
-
         });
-
       });
-
     });
   });
 
-//  ButtonElement testit = querySelector("#testit");
-//  testit.onClick.listen((e) {
-//    String i = "QAAAAN1Ue7aL3FeDQNmwRltQe542VlRVJorWv5CGmuUuMFdeDWiw8F+RMXQRhuzUCsAOWB62z/442qVuXyzOHwsEaiFu3BYP7RekdVAqv7RRNy2BHXFMVtxxRiLayni6zB+QNmLzRnCBoqd7SHlpMNQu/iuoE4xJnhFrkUeH4B79kre68OJ9LdOYGWaIfNGRl7Y6kKKSzWPmvlsI+3m1hncW8sGWjFlmwf3gklbm52pGm7wX/t3oiQ2IoPla4ErM4dmHop1rH0yaaq1JPtB2m85a9aZ6IyetvZOruJfdOLs/+/8VPgJu7DDvA+8WoHQSmW+W7rqj1vScACgk4V7Ux0n6YpF9aTSk50ZpQUz7mZ9DTIgsEVHCSK2zl/mdQW4wPuWS2K1QfcfG7qPStU/5RU6vPoH0gjoTL7de/BRACKbOXcVWZcwdlECzcLM4diKGvUTN6RUdvS0ch8YVBRTVnAm3FIqWTXXbLwe7snfdvBqo5wVXU8MtlXUywqhPXyZ4BjnS8I3wkM8eYT9B8hHW9AWDMfe2o7Lj9T3W/qjoWKh0sWWqdpTiw98mHceWUhp+Fv2NkwKL2a7Z+vMjWm3bz0p7JMksCtO9yi0uWXNuvbFaUjuJ9Q40nYB/35HucKR7SbOhqNwvvWkBb2Xbp/qvuPj5jVkulBvBMz+RxFrRe12nS18ioQCOlAEAAQA=";
-//    print("i = $i");
-//    print("i.length = ${i.length}");
-//    print(stringToByteData(i));
-////    int offset = 0;
-////    ByteData byteData = new ByteData(i.length~/2);
-////    for (int j = 0; j < i.length - 1; j+=2) {
-////      // dont know if its 32bit aligned.
-////      String ii = i[j] + i[j+1]; // + i[j+2] + i[j+3];
-////      print(ii);
-////      byteData.setUint8(offset, int.parse(ii, radix: 16));
-////      offset ++;
-////      Uint8List m = new Uint8List.view(byteData.buffer);
-////      print("m = ${m.map((e) => '0x${e.toRadixString(16)}').toList()}");
-////    }
-//
-//
-//  });
-
   ButtonElement openurl = querySelector("#openurl");
   openurl.onClick.listen((e) {
-
-//    void connect_to_remote(asocket *s, const char *destination)
-//    {
-//      D("Connect_to_remote call RS(%d) fd=%d\n", s->id, s->fd);
-//      apacket *p = get_apacket();
-//      int len = strlen(destination) + 1;
-//
-//      if(len > (MAX_PAYLOAD-1)) {
-//        fatal("destination oversized");
-//    }
-//
-//    D("LS(%d): connect('%s')\n", s->id, destination);
-//    p->msg.command = A_OPEN;
-//    p->msg.arg0 = s->id;
-//    p->msg.data_length = len;
-//    strcpy((char*) p->data, destination);
-//    send_packet(p, s->transport);
-//}
-//    system/core/adb/sockets.c::smart_socket_enqueue():SS(0): 'shell:am start -a android.intent.action.VIEW -d http://127.0.0.1:8000'
-//      system/core/adb/sockets.c::connect_to_remote():Connect_to_remote call RS(2) fd=11
-//      system/core/adb/sockets.c::connect_to_remote():LS(2): connect('shell:am start -a android.intent.action.VIEW -d http://127.0.0.1:8000')
-//      system/core/adb/transport.c::dump_packet():0301207d08e43206: to remote: [OPEN] arg0=2 arg1=0 (len=70) 7368656c6c3a616d207374617274202d shell:am start -
-//      system/core/adb/sockets.c::smart_socket_close():SS(0): closed
-//      system/core/adb/sockets.c::local_socket_event_func():LS(2): fd=11 post peer->enqueue(). r=1
-//      system/core/adb/transport.c::dump_packet():0301207d08e43206: from remote: [OPEN] arg0=2 arg1=0 (len=70) 7368656c6c3a616d207374617274202d shell:am start -
-//      system/core/adb/transport.c::input_thread():0301207d08e43206: transport got packet, sending to remote
-//      system/core/adb/transport.c::output_thread():0301207d08e43206: received remote packet, sending to transport
-//      system/core/adb/transport.c::dump_packet():0301207d08e43206: to remote: [OKAY] arg0=0x662 arg1=2 (len=0)
-
-
     String data = "shell:am start -a android.intent.action.VIEW -d http://www.dartlang.org ";
-
     AdbMessage openAdbMessage = new AdbMessage(A_OPEN, 2, 0, data);
 
     chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
