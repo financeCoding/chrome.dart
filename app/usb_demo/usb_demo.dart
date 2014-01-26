@@ -57,6 +57,32 @@ final String publicKey =
 """QAAAAN1Ue7aL3FeDQNmwRltQe542VlRVJorWv5CGmuUuMFdeDWiw8F+RMXQRhuzUCsAOWB62z/442qVuXyzOHwsEaiFu3BYP7RekdVAqv7RRNy2BHXFMVtxxRiLayni6zB+QNmLzRnCBoqd7SHlpMNQu/iuoE4xJnhFrkUeH4B79kre68OJ9LdOYGWaIfNGRl7Y6kKKSzWPmvlsI+3m1hncW8sGWjFlmwf3gklbm52pGm7wX/t3oiQ2IoPla4ErM4dmHop1rH0yaaq1JPtB2m85a9aZ6IyetvZOruJfdOLs/+/8VPgJu7DDvA+8WoHQSmW+W7rqj1vScACgk4V7Ux0n6YpF9aTSk50ZpQUz7mZ9DTIgsEVHCSK2zl/mdQW4wPuWS2K1QfcfG7qPStU/5RU6vPoH0gjoTL7de/BRACKbOXcVWZcwdlECzcLM4diKGvUTN6RUdvS0ch8YVBRTVnAm3FIqWTXXbLwe7snfdvBqo5wVXU8MtlXUywqhPXyZ4BjnS8I3wkM8eYT9B8hHW9AWDMfe2o7Lj9T3W/qjoWKh0sWWqdpTiw98mHceWUhp+Fv2NkwKL2a7Z+vMjWm3bz0p7JMksCtO9yi0uWXNuvbFaUjuJ9Q40nYB/35HucKR7SbOhqNwvvWkBb2Xbp/qvuPj5jVkulBvBMz+RxFrRe12nS18ioQCOlAEAAQA= adam.singer@csfol-m0429761""";
 
 
+// command names
+final int A_SYNC = 0x434e5953;
+final int A_CNXN = 0x4e584e43;
+final int A_OPEN = 0x4e45504f;
+final int A_OKAY = 0x59414b4f;
+final int A_CLSE = 0x45534c43;
+final int A_WRTE = 0x45545257;
+final int A_AUTH = 0x48545541;
+
+// ADB protocol version
+final int A_VERSION = 0x01000000;
+//
+final int MAX_PAYLOAD = 4096;
+final int ADB_VERSION_MINOR = 0; // Used for help/version information
+
+final ADB_SERVER_VERSION   = 31;    // Increment this when we want to force users to start a new adb server
+
+final ADB_CLASS = 0xff;
+final ADB_SUBCLASS = 0x42;
+final ADB_PROTOCOL = 0x1;
+
+// type for AUTH commands
+final AUTH_TOKEN = 1;
+final AUTH_SIGNATURE = 2;
+final AUTH_RSAPUBLICKEY = 3;
+
 
 int checksum(ByteData data) {
   int result = 0;
@@ -84,25 +110,143 @@ ByteData stringToByteData(String input) {
   return byteData;
 }
 
+class AdbMessage {
+  /*
+  struct message {
+    unsigned command;       /* command identifier constant      */
+    unsigned arg0;          /* first argument                   */
+    unsigned arg1;          /* second argument                  */
+    unsigned data_length;   /* length of payload (0 is allowed) */
+    unsigned data_crc32;    /* crc32 of data payload            */
+    unsigned magic;         /* command ^ 0xffffffff             */
+  };
+   */
+
+  final COMMAND_OFFSET = 0;
+  final ARG0_OFFSET = 4;
+  final ARG1_OFFSET = 8;
+  final DATA_LENGTH_OFFSET = 12;
+  final CHECKSUM_OFFSET = 16;
+  final MAGIC_OFFSET = 20;
+
+  ByteData messageBuffer = new ByteData(24);
+  ByteData dataBuffer;
+
+  int get command =>
+      messageBuffer.getInt32(COMMAND_OFFSET, Endianness.LITTLE_ENDIAN);
+
+  void set command(int value) =>
+      messageBuffer.setInt32(COMMAND_OFFSET, value, Endianness.LITTLE_ENDIAN);
+
+
+  int get arg0 =>
+      messageBuffer.getInt32(ARG1_OFFSET, Endianness.LITTLE_ENDIAN);
+
+  void set arg0(int value) =>
+      messageBuffer.setInt32(ARG1_OFFSET, value, Endianness.LITTLE_ENDIAN);
+
+  int get arg1 =>
+      messageBuffer.getInt32(ARG1_OFFSET, Endianness.LITTLE_ENDIAN);
+
+  void set arg1(int value) =>
+      messageBuffer.setInt32(ARG1_OFFSET, value, Endianness.LITTLE_ENDIAN);
+
+  int get dataLength =>
+      messageBuffer.getInt32(DATA_LENGTH_OFFSET, Endianness.LITTLE_ENDIAN);
+
+  void set dataLength(int value) =>
+      messageBuffer.setInt32(DATA_LENGTH_OFFSET, value, Endianness.LITTLE_ENDIAN);
+
+  int get dataCrc32 =>
+      messageBuffer.getInt32(CHECKSUM_OFFSET, Endianness.LITTLE_ENDIAN);
+
+  void set dataCrc32(int value) =>
+      messageBuffer.setInt32(CHECKSUM_OFFSET, value, Endianness.LITTLE_ENDIAN);
+
+  int get magic =>
+      messageBuffer.getInt32(MAGIC_OFFSET, Endianness.LITTLE_ENDIAN);
+
+  void set magic(int value) =>
+      messageBuffer.setInt32(MAGIC_OFFSET, value, Endianness.LITTLE_ENDIAN);
+
+  AdbMessage(int command, int arg0, int arg1, [String data = null]) {
+
+    if (data != null) {
+      // Build the dataBuffer
+      dataBuffer = new ByteData(MAX_PAYLOAD);
+      Uint8List u8data = new Uint8List.fromList(data.codeUnits);
+      Uint8List u8DataBufferView = new Uint8List.view(dataBuffer.buffer);
+      for (int i = 0; i < u8data.length; i++) {
+        u8DataBufferView[i] = u8data[i];
+      }
+    }
+
+    this.command = command;
+    this.arg0 = arg0;
+    this.arg1 = arg1;
+    this.dataLength = data != null ? data.length : 0;
+    this.dataCrc32 = data != null ? checksum(dataBuffer) : 0;
+    this.magic = command ^ 0xFFFFFFFF;
+  }
+
+  // Construct the messageBuffer from bytes
+  AdbMessage.fromMessageBufferBytes(List<int> bytes) {
+    Uint8List u8data = new Uint8List.fromList(bytes);
+    Uint8List u8MessageBufferView = new Uint8List.view(messageBuffer.buffer);
+    for (int i = 0; i < u8data.length; i++) {
+      u8MessageBufferView[i] = u8data[i];
+    }
+  }
+
+  // Read in a databuffer
+  void loadDataBuffer(List<int> data) {
+    // Use the messageBuffer information
+    dataBuffer = new ByteData(dataLength);
+
+    Uint8List u8data = new Uint8List.fromList(data);
+    Uint8List u8DataBufferView = new Uint8List.view(dataBuffer.buffer);
+
+    for (int i = 0; u8data.length; i++) {
+      u8DataBufferView[i] = u8data[i];
+    }
+  }
+
+  String toString() {
+    StringBuffer sb = new StringBuffer()
+    ..write("[command = ${command.toRadixString(16)}, ")
+    ..write("arg0 = ${arg0.toRadixString(16)}, ")
+    ..write("arg1 = ${arg1.toRadixString(16)}, ")
+    ..write("dataLength = ${dataLength.toRadixString(16)}, ")
+    ..write("dataCrc32 = ${dataCrc32.toRadixString(16)}, ")
+    ..writeln("magic = ${magic.toRadixString(16)}]");
+
+    if (dataBuffer != null) {
+      sb.write("[");
+      Uint8List u8DataBufferView = new Uint8List.view(dataBuffer.buffer);
+      for (int i = 0; i < u8DataBufferView.length; i++) {
+        if (i+1 != u8DataBufferView.length) {
+          sb.write("${u8DataBufferView[i].toRadixString(16)}, ");
+        } else {
+          sb.write("${u8DataBufferView[i].toRadixString(16)}]");
+        }
+      }
+    }
+
+    return sb.toString();
+  }
+}
+
+class AndroidDevice {
+  chrome.Device androidDevice;
+  chrome.InterfaceDescriptor adbInterface;
+  chrome.EndpointDescriptor inDescriptor;
+  chrome.EndpointDescriptor outDescriptor;
+  chrome.ConnectionHandle connectionHandle;
+  String deviceToken = "DEVICE TOKEN NOT SET";
+
+}
+
 void main() {
-  // command names
-  final int A_SYNC = 0x434e5953;
-  final int A_CNXN = 0x4e584e43;
-  final int A_OPEN = 0x4e45504f;
-  final int A_OKAY = 0x59414b4f;
-  final int A_CLSE = 0x45534c43;
-  final int A_WRTE = 0x45545257;
-
-  final int A_AUTH = 0x48545541;
-
-//
-//      // ADB protocol version
-  final int A_VERSION = 0x01000000;
-  //
-  final int MAX_PAYLOAD = 4096;
-  final int ADB_VERSION_MINOR = 0;         // Used for help/version information
-
-  final ADB_SERVER_VERSION   = 31;    // Increment this when we want to force users to start a new adb server
 
   chrome.Device androidDevice;
   chrome.InterfaceDescriptor adbInterface;
@@ -154,12 +298,9 @@ void main() {
                 print("i.description = ${i.description}");
                 print("i.endpoints = ${i.endpoints}");
 
-//                #define ADB_CLASS              0xff
-//                #define ADB_SUBCLASS           0x42
-//                #define ADB_PROTOCOL           0x1
                 //* check to make sure interface class, subclass and protocol match ADB
                 //* avoid opening mass storage endpoints
-                if (i.interfaceClass == 0xff && i.interfaceSubclass == 0x42 && i.interfaceProtocol == 0x1) {
+                if (i.interfaceClass == ADB_CLASS && i.interfaceSubclass == ADB_SUBCLASS && i.interfaceProtocol == ADB_PROTOCOL) {
                   print("device found.");
                   adbInterface = i;
                   androidDevice = d;
@@ -177,10 +318,10 @@ void main() {
                   print("des.pollingInterval = ${des.pollingInterval}");
                   print("");
 
-                  if (des.direction == chrome.Direction.IN && i.interfaceClass == 0xff && i.interfaceSubclass == 0x42 && i.interfaceProtocol == 0x1) {
+                  if (des.direction == chrome.Direction.IN && i.interfaceClass == ADB_CLASS && i.interfaceSubclass == ADB_SUBCLASS && i.interfaceProtocol == ADB_PROTOCOL) {
                     print("device found.");
                     inDescriptor = des;
-                  } else if (des.direction == chrome.Direction.OUT && i.interfaceClass == 0xff && i.interfaceSubclass == 0x42 && i.interfaceProtocol == 0x1) {
+                  } else if (des.direction == chrome.Direction.OUT && i.interfaceClass == ADB_CLASS && i.interfaceSubclass == ADB_SUBCLASS && i.interfaceProtocol == ADB_PROTOCOL) {
                     outDescriptor = des;
 
 
@@ -436,7 +577,7 @@ void main() {
 
     //message.set(AdbMessage.A_CNXN, AdbMessage.A_VERSION, AdbMessage.MAX_PAYLOAD, "host::\0");
     mMessageBuffer.setInt32(0, A_AUTH, Endianness.LITTLE_ENDIAN);
-    mMessageBuffer.setInt32(4, 2, Endianness.LITTLE_ENDIAN);
+    mMessageBuffer.setInt32(4, AUTH_SIGNATURE, Endianness.LITTLE_ENDIAN);
     mMessageBuffer.setInt32(8, 0, Endianness.LITTLE_ENDIAN);
     mMessageBuffer.setInt32(12, data.length, Endianness.LITTLE_ENDIAN);
     mMessageBuffer.setInt32(16, checksum(mDataBuffer), Endianness.LITTLE_ENDIAN);
@@ -479,7 +620,7 @@ void main() {
         ByteData mMessageBuffer = new ByteData(24);
         //message.set(AdbMessage.A_CNXN, AdbMessage.A_VERSION, AdbMessage.MAX_PAYLOAD, "host::\0");
         mMessageBuffer.setInt32(0, A_AUTH, Endianness.LITTLE_ENDIAN);
-        mMessageBuffer.setInt32(4, 3, Endianness.LITTLE_ENDIAN);
+        mMessageBuffer.setInt32(4, AUTH_RSAPUBLICKEY, Endianness.LITTLE_ENDIAN);
         mMessageBuffer.setInt32(8, 0, Endianness.LITTLE_ENDIAN);
         mMessageBuffer.setInt32(12, byteDataPubKey.buffer.lengthInBytes, Endianness.LITTLE_ENDIAN);
         mMessageBuffer.setInt32(16, checksum(byteDataPubKey), Endianness.LITTLE_ENDIAN);
