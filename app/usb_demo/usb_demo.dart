@@ -105,6 +105,8 @@ ByteData stringToByteData(String input) {
     offset++;
   }
 
+  //byteData.lengthInBytes;
+
   Uint8List m = new Uint8List.view(byteData.buffer);
   print("stringToByteData ${input} = ${m.map((e) => '0x${e.toRadixString(16)}').toList()}");
   return byteData;
@@ -173,7 +175,7 @@ class AdbMessage {
 
     if (data != null) {
       // Build the dataBuffer
-      dataBuffer = new ByteData(MAX_PAYLOAD);
+      dataBuffer = new ByteData(data.length);
       Uint8List u8data = new Uint8List.fromList(data.codeUnits);
       Uint8List u8DataBufferView = new Uint8List.view(dataBuffer.buffer);
       for (int i = 0; i < u8data.length; i++) {
@@ -323,9 +325,6 @@ void main() {
                     inDescriptor = des;
                   } else if (des.direction == chrome.Direction.OUT && i.interfaceClass == ADB_CLASS && i.interfaceSubclass == ADB_SUBCLASS && i.interfaceProtocol == ADB_PROTOCOL) {
                     outDescriptor = des;
-
-
-
                   }
                 });
               });
@@ -394,61 +393,14 @@ void main() {
 //    }
 
 
-
-//      public AdbMessage() {
-//        mMessageBuffer = ByteBuffer.allocate(24);
-//        mDataBuffer = ByteBuffer.allocate(MAX_PAYLOAD);
-//        mMessageBuffer.order(ByteOrder.LITTLE_ENDIAN);
-//        mDataBuffer.order(ByteOrder.LITTLE_ENDIAN);
-//    }
-//
-//    // sets the fields in the command header
-//    public void set(int command, int arg0, int arg1, byte[] data) {
-//        mMessageBuffer.putInt(0, command);
-//        mMessageBuffer.putInt(4, arg0);
-//        mMessageBuffer.putInt(8, arg1);
-//        mMessageBuffer.putInt(12, (data == null ? 0 : data.length));
-//        mMessageBuffer.putInt(16, (data == null ? 0 : checksum(data)));
-//        mMessageBuffer.putInt(20, command ^ 0xFFFFFFFF);
-//        if (data != null) {
-//            mDataBuffer.put(data, 0, data.length);
-//        }
-//    }
-//
-//    public void set(int command, int arg0, int arg1) {
-//        set(command, arg0, arg1, (byte[])null);
-//    }
-//    public void set(int command, int arg0, int arg1, String data) {
-//        // add trailing zero
-//        data += "\0";
-//        set(command, arg0, arg1, data.getBytes());
-//    }
-
-      ByteData mMessageBuffer = new ByteData(24);
-      ByteData mDataBuffer = new ByteData(MAX_PAYLOAD);
-
       String data = "host::";
-      Uint8List dataAsUint8List = new Uint8List.fromList(data.codeUnits);
-      Uint8List mDataBufferBuffer = new Uint8List.view(mDataBuffer.buffer);
-      for (int i = 0; i < dataAsUint8List.length; i++) {
-        mDataBufferBuffer[i] = dataAsUint8List[i];
-      }
-
-      //message.set(AdbMessage.A_CNXN, AdbMessage.A_VERSION, AdbMessage.MAX_PAYLOAD, "host::\0");
-      mMessageBuffer.setInt32(0, A_CNXN, Endianness.LITTLE_ENDIAN);
-      mMessageBuffer.setInt32(4, A_VERSION, Endianness.LITTLE_ENDIAN);
-      mMessageBuffer.setInt32(8, MAX_PAYLOAD, Endianness.LITTLE_ENDIAN);
-      mMessageBuffer.setInt32(12, data.length, Endianness.LITTLE_ENDIAN);
-      mMessageBuffer.setInt32(16, checksum(mDataBuffer), Endianness.LITTLE_ENDIAN);
-      mMessageBuffer.setInt32(20, A_CNXN ^ 0xFFFFFFFF, Endianness.LITTLE_ENDIAN);
-
+      AdbMessage adbMessage = new AdbMessage(A_CNXN, A_VERSION, MAX_PAYLOAD, data);
+      print("adbMessage = ${adbMessage}");
 
       chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
       transferInfo.direction = outDescriptor.direction;
       transferInfo.endpoint = outDescriptor.address;
-//      transferInfo.data = new chrome.ArrayBuffer.fromString("hello world\0");
-//      transferInfo.length = "hello world\0".length;
-      chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(mMessageBuffer.buffer).toList());
+      chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(adbMessage.messageBuffer.buffer).toList());
       print("ab.getBytes().length = ${ab.getBytes().length}");
       transferInfo.length = ab.getBytes().length;
       transferInfo.data = ab;
@@ -460,7 +412,7 @@ void main() {
         print("result.data.getBytes() = ${result.data.getBytes()}");
         print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
 
-        chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(mDataBuffer.buffer).toList());
+        chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(adbMessage.dataBuffer.buffer).toList());
         chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
         transferInfoData.direction = outDescriptor.direction;
         transferInfoData.endpoint = outDescriptor.address;
@@ -494,37 +446,16 @@ void main() {
       print("resultData.data.getBytes() = ${result.data.getBytes().map((int e) => '0x${e.toRadixString(16)}').toList()}");
       print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
 
-      // Read back a mMessageBuffer for AUTH response
-      ByteData __mMessageBuffer = new ByteData(24);
-      ByteData __mDataBuffer = new ByteData(MAX_PAYLOAD);
 
-      var bufList = new Uint8List.fromList(result.data.getBytes());
-      Uint8List __mDataBufferBuffer = new Uint8List.view(__mMessageBuffer.buffer);
-      for (int i = 0; i < bufList.length; i++) {
-        __mDataBufferBuffer[i] = bufList[i];
-      }
+// Read back a mMessageBuffer for AUTH response
+      AdbMessage readAdbMessage = new AdbMessage.fromMessageBufferBytes(result.data.getBytes());
 
-      int _command = __mMessageBuffer.getInt32(0, Endianness.LITTLE_ENDIAN);
-      int _version = __mMessageBuffer.getInt32(4, Endianness.LITTLE_ENDIAN);
-      int _max_payload = __mMessageBuffer.getInt32(8, Endianness.LITTLE_ENDIAN);
-      int _data_length = __mMessageBuffer.getInt32(12, Endianness.LITTLE_ENDIAN);
-      int _checksum = __mMessageBuffer.getInt32(16, Endianness.LITTLE_ENDIAN);
-      int _magic = __mMessageBuffer.getInt32(20, Endianness.LITTLE_ENDIAN);
-
-      print("_command = ${_command.toRadixString(16)}");
-      print("_version = ${_version.toRadixString(16)}");
-      print("_max_payload = ${_max_payload.toRadixString(16)}");
-      print("_data_length = ${_data_length.toRadixString(16)}");
-      print("_checksum = ${_checksum.toRadixString(16)}");
-      print("_magic = ${_magic.toRadixString(16)}");
-
-      // TODO: use the _data_length to readin the random data from
-      // the device..
+      print("readAdbMessage = ${readAdbMessage}");
 
       chrome.GenericTransferInfo readDataTransferInfo = new chrome.GenericTransferInfo();
       readDataTransferInfo.direction = inDescriptor.direction;
       readDataTransferInfo.endpoint = inDescriptor.address;
-      readDataTransferInfo.length = _data_length;
+      readDataTransferInfo.length = readAdbMessage.dataLength;
       chrome.usb.bulkTransfer(connectionHandle, readDataTransferInfo).then((chrome.TransferResultInfo resultWithToken) {
         print("token data next step... ");
         print("resultWithToken = ${resultWithToken}");
@@ -534,28 +465,11 @@ void main() {
         print("resultWithToken.data.getBytes() = ${resultWithToken.data.getBytes().map((int e) => '0x${e.toRadixString(16)}').toList()}");
         print(UTF8.decode(resultWithToken.data.getBytes(), allowMalformed: true));
         deviceToken = UTF8.decode(resultWithToken.data.getBytes(), allowMalformed: true);
+
+        // TODO: decode into AdbMessage.loadDataBuffer();
       });
     });
   });
-
-//  static void send_auth_publickey(atransport *t)
-//  {
-//    D("Calling send_auth_publickey\n");
-//    apacket *p = get_apacket();
-//    int ret;
-//
-//    ret = adb_auth_get_userkey(p->data, sizeof(p->data));
-//    if (!ret) {
-//        D("Failed to get user public key\n");
-//        put_apacket(p);
-//        return;
-//    }
-//
-//    p->msg.command = A_AUTH;
-//    p->msg.arg0 = ADB_AUTH_RSAPUBLICKEY;
-//    p->msg.data_length = ret;
-//    send_packet(p, t);
-//}
 
   ButtonElement signit = querySelector("#signit");
   signit.onClick.listen((e) {
@@ -564,30 +478,12 @@ void main() {
     var hexStringPubKey = js.context.callMethod('getHexStringPublicKey', [publicKey]);
     print("hexStringPubKey = ${hexStringPubKey}");
 
-
-    ByteData mMessageBuffer = new ByteData(24);
-    ByteData mDataBuffer = new ByteData(MAX_PAYLOAD);
-
-    String data = hexStringPubKey;
-    Uint8List dataAsUint8List = new Uint8List.fromList(data.codeUnits);
-    Uint8List mDataBufferBuffer = new Uint8List.view(mDataBuffer.buffer);
-    for (int i = 0; i < dataAsUint8List.length; i++) {
-      mDataBufferBuffer[i] = dataAsUint8List[i];
-    }
-
-    //message.set(AdbMessage.A_CNXN, AdbMessage.A_VERSION, AdbMessage.MAX_PAYLOAD, "host::\0");
-    mMessageBuffer.setInt32(0, A_AUTH, Endianness.LITTLE_ENDIAN);
-    mMessageBuffer.setInt32(4, AUTH_SIGNATURE, Endianness.LITTLE_ENDIAN);
-    mMessageBuffer.setInt32(8, 0, Endianness.LITTLE_ENDIAN);
-    mMessageBuffer.setInt32(12, data.length, Endianness.LITTLE_ENDIAN);
-    mMessageBuffer.setInt32(16, checksum(mDataBuffer), Endianness.LITTLE_ENDIAN);
-    mMessageBuffer.setInt32(20, A_AUTH ^ 0xFFFFFFFF, Endianness.LITTLE_ENDIAN);
-
+    AdbMessage authPubKeyAdbMessage = new AdbMessage(A_AUTH, AUTH_SIGNATURE, 0, hexStringPubKey);
 
     chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
     transferInfo.direction = outDescriptor.direction;
     transferInfo.endpoint = outDescriptor.address;
-    chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(mMessageBuffer.buffer).toList());
+    chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authPubKeyAdbMessage.messageBuffer.buffer).toList());
     print("ab.getBytes().length = ${ab.getBytes().length}");
     transferInfo.length = ab.getBytes().length;
     transferInfo.data = ab;
@@ -600,7 +496,7 @@ void main() {
       print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
 
       // Transfer the signed data
-      chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(mDataBuffer.buffer).toList());
+      chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authPubKeyAdbMessage.dataBuffer.buffer).toList());
       chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
       transferInfoData.direction = outDescriptor.direction;
       transferInfoData.endpoint = outDescriptor.address;
@@ -718,27 +614,14 @@ void main() {
 //      system/core/adb/transport.c::dump_packet():0301207d08e43206: to remote: [OKAY] arg0=0x662 arg1=2 (len=0)
 
 
-    ByteData mMessageBuffer = new ByteData(24);
-    ByteData mDataBuffer = new ByteData(MAX_PAYLOAD);
-
     String data = "shell:am start -a android.intent.action.VIEW -d http://www.dartlang.org ";
-    Uint8List dataAsUint8List = new Uint8List.fromList(data.codeUnits);
-    Uint8List mDataBufferBuffer = new Uint8List.view(mDataBuffer.buffer);
-    for (int i = 0; i < dataAsUint8List.length; i++) {
-      mDataBufferBuffer[i] = dataAsUint8List[i];
-    }
 
-    mMessageBuffer.setInt32(0, A_OPEN, Endianness.LITTLE_ENDIAN);
-    mMessageBuffer.setInt32(4, 2, Endianness.LITTLE_ENDIAN); // local-id
-    mMessageBuffer.setInt32(8, 0, Endianness.LITTLE_ENDIAN); // 0
-    mMessageBuffer.setInt32(12, data.length, Endianness.LITTLE_ENDIAN);
-    mMessageBuffer.setInt32(16, checksum(mDataBuffer), Endianness.LITTLE_ENDIAN);
-    mMessageBuffer.setInt32(20, A_OPEN ^ 0xFFFFFFFF, Endianness.LITTLE_ENDIAN);
+    AdbMessage openAdbMessage = new AdbMessage(A_OPEN, 2, 0, data);
 
     chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
     transferInfo.direction = outDescriptor.direction;
     transferInfo.endpoint = outDescriptor.address;
-    chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(mMessageBuffer.buffer).toList());
+    chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(openAdbMessage.messageBuffer.buffer).toList());
     print("ab.getBytes().length = ${ab.getBytes().length}");
     transferInfo.length = ab.getBytes().length;
     transferInfo.data = ab;
@@ -751,7 +634,7 @@ void main() {
       print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
 
       // Transfer the data
-      chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(mDataBuffer.buffer).toList());
+      chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(openAdbMessage.dataBuffer.buffer).toList());
       chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
       transferInfoData.direction = outDescriptor.direction;
       transferInfoData.endpoint = outDescriptor.address;
@@ -765,7 +648,6 @@ void main() {
         print("resultData.data.getBytes() = ${resultData.data.getBytes().map((int e) => '0x${e.toRadixString(16)}')}");
         print(UTF8.decode(resultData.data.getBytes(), allowMalformed: true));
       });
-
 
     });
 
