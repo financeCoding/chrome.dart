@@ -415,6 +415,85 @@ class AndroidDevice {
     });
   }
 
+  // Assume that deviceToken has already been set.
+  Future<bool> sendAuthSignedToken(String pubKeyAsHexString) {
+    AdbMessage authSignedMessage = new AdbMessage(A_AUTH, ADB_AUTH_SIGNATURE, 0, pubKeyAsHexString);
+
+    chrome.ArrayBuffer messageArrayBuffer =
+        new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authSignedMessage.messageBuffer.buffer).toList());
+
+    chrome.GenericTransferInfo authTransferInfo = new chrome.GenericTransferInfo()
+    ..direction = outDescriptor.direction
+    ..endpoint = outDescriptor.address
+    ..length = messageArrayBuffer.getBytes().length
+    ..data = messageArrayBuffer;
+
+    // Transfer the AUTH message
+    return chrome.usb.bulkTransfer(adbConnectionHandle, authTransferInfo).then((chrome.TransferResultInfo authResult) {
+
+      if (authResult.resultCode != 0) {
+        return false;
+      }
+
+      chrome.ArrayBuffer dataArrayBuffer =
+          new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authSignedMessage.dataBuffer.buffer).toList());
+
+      chrome.GenericTransferInfo authDataTransferInfo = new chrome.GenericTransferInfo()
+      ..direction = outDescriptor.direction
+      ..endpoint = outDescriptor.address
+      ..length = dataArrayBuffer.getBytes().length
+      ..data = dataArrayBuffer;
+
+      // Transfer the AUTH data
+      return chrome.usb.bulkTransfer(adbConnectionHandle, authDataTransferInfo).then((chrome.TransferResultInfo resultData) {
+        if (resultData.resultCode != 0) {
+          return false;
+        } else {
+          return true;
+        }
+      });
+    });
+  }
+
+  Future<bool> sendAuthRsaPubKey(String pubKeyAsHexString) {
+    AdbMessage authRsaPubKeyAdbMessage = new AdbMessage(A_AUTH, ADB_AUTH_RSAPUBLICKEY, 0, hexStringToString(pubKeyAsHexString));
+
+    chrome.ArrayBuffer messageArrayBuffer =
+        new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authRsaPubKeyAdbMessage.messageBuffer.buffer).toList());
+
+    chrome.GenericTransferInfo authTransferInfo = new chrome.GenericTransferInfo()
+    ..direction = outDescriptor.direction
+    ..endpoint = outDescriptor.address
+    ..length = messageArrayBuffer.getBytes().length
+    ..data = messageArrayBuffer;
+
+    // Transfer the AUTH message
+    return chrome.usb.bulkTransfer(adbConnectionHandle, authTransferInfo).then((chrome.TransferResultInfo messageResult) {
+
+      if (messageResult.resultCode != 0) {
+        return false;
+      }
+
+      chrome.ArrayBuffer dataArrayBuffer = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authRsaPubKeyAdbMessage.dataBuffer.buffer).toList());
+      chrome.GenericTransferInfo authDataTransferInfo = new chrome.GenericTransferInfo()
+      ..direction = outDescriptor.direction
+      ..endpoint = outDescriptor.address
+      ..length = dataArrayBuffer.getBytes().length
+      ..data = dataArrayBuffer;
+
+      // Transfer the AUTH data
+      return chrome.usb.bulkTransfer(adbConnectionHandle, authDataTransferInfo).then((chrome.TransferResultInfo dataResult) {
+        if (dataResult.resultCode != 0) {
+          return false;
+        } else {
+          return true;
+        }
+      });
+
+    });
+  }
+
+
   void handleMessage() {
     // TODO: handle the messages that come in.
   }
