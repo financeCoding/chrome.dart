@@ -525,7 +525,7 @@ class AndroidDevice {
       ..data = dataArrayBuffer;
 
       // Transfer the data
-      chrome.usb.bulkTransfer(adbConnectionHandle, dataTransferInfo).then((chrome.TransferResultInfo dataResult) {
+      return chrome.usb.bulkTransfer(adbConnectionHandle, dataTransferInfo).then((chrome.TransferResultInfo dataResult) {
         if (dataResult.resultCode != 0) {
           return false;
         } else {
@@ -576,7 +576,6 @@ void main() {
     }
   });
 
-  print("hello world");
   ButtonElement be = querySelector("#clickit");
   be.onClick.listen((e) => androidDeviceTest.open()
       .then((result) => print("result = $result")));
