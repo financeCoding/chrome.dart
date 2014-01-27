@@ -496,8 +496,7 @@ class AndroidDevice {
     });
   }
 
-
-  sendShellCommand(String command) {
+  Future<bool> sendShellCommand(String command) {
     String shellCommand = "shell:${command} ";
     // TODO: choose a better way to handle local-id
     AdbMessage shellAdbMessage = new AdbMessage(A_OPEN, 2, 0, shellCommand);
@@ -613,41 +612,7 @@ void main() {
 
   ButtonElement openurl = querySelector("#openurl");
   openurl.onClick.listen((e) {
-    String data = "shell:am start -a android.intent.action.VIEW -d http://www.dartlang.org ";
-    AdbMessage openAdbMessage = new AdbMessage(A_OPEN, 2, 0, data);
-
-    chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
-    transferInfo.direction = androidDeviceTest.outDescriptor.direction;
-    transferInfo.endpoint = androidDeviceTest.outDescriptor.address;
-    chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(openAdbMessage.messageBuffer.buffer).toList());
-    print("ab.getBytes().length = ${ab.getBytes().length}");
-    transferInfo.length = ab.getBytes().length;
-    transferInfo.data = ab;
-    chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
-      print("result = ${result}");
-      print("result.resultCode = ${result.resultCode}");
-      print("result.data = ${result.data}");
-      print("result.data.getBytes() = ${result.data.getBytes()}");
-      print("resultData.data.getBytes() = ${result.data.getBytes().map((int e) => '0x${e.toRadixString(16)}').toList()}");
-      print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
-
-      // Transfer the data
-      chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(openAdbMessage.dataBuffer.buffer).toList());
-      chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
-      transferInfoData.direction = androidDeviceTest.outDescriptor.direction;
-      transferInfoData.endpoint = androidDeviceTest.outDescriptor.address;
-      print("abData.getBytes().length = ${abData.getBytes().length}");
-      transferInfoData.length = abData.getBytes().length;
-      transferInfoData.data = abData;
-      chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
-        print("resultData = ${resultData}");
-        print("resultData.resultCode = ${resultData.resultCode}");
-        print("resultData.data = ${resultData.data}");
-        print("resultData.data.getBytes() = ${resultData.data.getBytes().map((int e) => '0x${e.toRadixString(16)}')}");
-        print(UTF8.decode(resultData.data.getBytes(), allowMalformed: true));
-      });
-
-    });
-
+    String command = "am start -a android.intent.action.VIEW -d http://www.dartlang.org";
+    androidDeviceTest.sendShellCommand(command).then((result) => print(result));
   });
 }
