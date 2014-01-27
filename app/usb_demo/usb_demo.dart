@@ -1,13 +1,3 @@
-// system/core/adb/usb_osx.c::AndroidInterfaceAdded():INFO: Found vid=18d1 pid=4ee2 serial=0301207d08e43206
-//; 0x20
-//  32
-//; 0x18d1
-//  6353
-//; 0x4ee2
-//  20194
-//; 0x0301207d08e43206
-//  216489978482668038
-//;
 
 // TODO: implement some sync commands.
 // TODO: switch out for a simpler crypto implementation
