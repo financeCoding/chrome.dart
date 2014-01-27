@@ -417,6 +417,9 @@ class AndroidDevice {
 
   // Assume that deviceToken has already been set.
   Future<bool> sendAuthSignedToken(String pubKeyAsHexString) {
+    // TODO: this method needs to properly sign the deviceToken and send that
+    // into the messages data buffer. This is currently incorrect ATM.
+
     AdbMessage authSignedMessage = new AdbMessage(A_AUTH, ADB_AUTH_SIGNATURE, 0, pubKeyAsHexString);
 
     chrome.ArrayBuffer messageArrayBuffer =
@@ -494,6 +497,45 @@ class AndroidDevice {
   }
 
 
+  sendShellCommand(String command) {
+    String shellCommand = "shell:${command} ";
+    // TODO: choose a better way to handle local-id
+    AdbMessage shellAdbMessage = new AdbMessage(A_OPEN, 2, 0, shellCommand);
+
+    chrome.ArrayBuffer messageArrayBuffer =
+        new chrome.ArrayBuffer.fromBytes(new Uint8List.view(shellAdbMessage.messageBuffer.buffer).toList());
+
+    chrome.GenericTransferInfo messageTransferInfo = new chrome.GenericTransferInfo()
+    ..direction = outDescriptor.direction
+    ..endpoint = outDescriptor.address
+    ..length = messageArrayBuffer.getBytes().length
+    ..data = messageArrayBuffer;
+
+    // Transfer the message
+    return chrome.usb.bulkTransfer(adbConnectionHandle, messageTransferInfo).then((chrome.TransferResultInfo messageResult) {
+      if (messageResult.resultCode != 0) {
+        return false;
+      }
+
+      // Transfer the data
+      chrome.ArrayBuffer dataArrayBuffer = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(shellAdbMessage.dataBuffer.buffer).toList());
+      chrome.GenericTransferInfo dataTransferInfo = new chrome.GenericTransferInfo()
+      ..direction = outDescriptor.direction
+      ..endpoint = outDescriptor.address
+      ..length = dataArrayBuffer.getBytes().length
+      ..data = dataArrayBuffer;
+
+      // Transfer the data
+      chrome.usb.bulkTransfer(adbConnectionHandle, dataTransferInfo).then((chrome.TransferResultInfo dataResult) {
+        if (dataResult.resultCode != 0) {
+          return false;
+        } else {
+          return true;
+        }
+      });
+    });
+  }
+
   void handleMessage() {
     // TODO: handle the messages that come in.
   }
@@ -550,6 +592,15 @@ void main() {
   ButtonElement readitButton = querySelector("#readit");
   readitButton.onClick.listen((e) => androidDeviceTest.readMessage());
 
+
+  ButtonElement sendrsakey = querySelector("#sendrsakey");
+  sendrsakey.onClick.listen((e) {
+    var hexStringPubKey = js.context.callMethod('getHexStringPublicKey', [publicKey]);
+    print("hexStringPubKey = ${hexStringPubKey}");
+
+    androidDeviceTest.sendAuthRsaPubKey(hexStringPubKey).then((result) => print(result));
+  });
+
   ButtonElement signit = querySelector("#signit");
   signit.onClick.listen((e) {
     var sig  = js.context.callMethod('doAdbSign', [privateKey, androidDeviceTest.deviceToken]);
@@ -557,76 +608,7 @@ void main() {
     var hexStringPubKey = js.context.callMethod('getHexStringPublicKey', [publicKey]);
     print("hexStringPubKey = ${hexStringPubKey}");
 
-    AdbMessage authPubKeyAdbMessage = new AdbMessage(A_AUTH, ADB_AUTH_SIGNATURE, 0, hexStringPubKey);
-
-    chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
-    transferInfo.direction = androidDeviceTest.outDescriptor.direction;
-    transferInfo.endpoint = androidDeviceTest.outDescriptor.address;
-    chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authPubKeyAdbMessage.messageBuffer.buffer).toList());
-    print("ab.getBytes().length = ${ab.getBytes().length}");
-    transferInfo.length = ab.getBytes().length;
-    transferInfo.data = ab;
-    chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
-      print("result = ${result}");
-      print("result.resultCode = ${result.resultCode}");
-      print("result.data = ${result.data}");
-      print("result.data.getBytes() = ${result.data.getBytes()}");
-      print("resultData.data.getBytes() = ${result.data.getBytes().map((int e) => '0x${e.toRadixString(16)}').toList()}");
-      print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
-
-      // Transfer the signed data
-      chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authPubKeyAdbMessage.dataBuffer.buffer).toList());
-      chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
-      transferInfoData.direction = androidDeviceTest.outDescriptor.direction;
-      transferInfoData.endpoint = androidDeviceTest.outDescriptor.address;
-      print("abData.getBytes().length = ${abData.getBytes().length}");
-      transferInfoData.length = abData.getBytes().length;
-      transferInfoData.data = abData;
-      chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
-        print("resultData = ${resultData}");
-        print("resultData.resultCode = ${resultData.resultCode}");
-        print("resultData.data = ${resultData.data}");
-        print("resultData.data.getBytes() = ${resultData.data.getBytes().map((int e) => '0x${e.toRadixString(16)}')}");
-        print(UTF8.decode(resultData.data.getBytes(), allowMalformed: true));
-
-        // SEND OVER RSAPUBLICKEY(3)
-        AdbMessage authRsaPubKeyAdbMessage = new AdbMessage(A_AUTH, ADB_AUTH_RSAPUBLICKEY, 0, hexStringToString(hexStringPubKey));
-
-        print("authRsaPubKeyAdbMessage = ${authRsaPubKeyAdbMessage}");
-
-        chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
-        transferInfo.direction = androidDeviceTest.outDescriptor.direction;
-        transferInfo.endpoint = androidDeviceTest.outDescriptor.address;
-        chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authRsaPubKeyAdbMessage.messageBuffer.buffer).toList());
-        print("ab.getBytes().length = ${ab.getBytes().length}");
-        transferInfo.length = ab.getBytes().length;
-        transferInfo.data = ab;
-        chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
-          print("result = ${result}");
-          print("result.resultCode = ${result.resultCode}");
-          print("result.data = ${result.data}");
-          print("result.data.getBytes() = ${result.data.getBytes()}");
-          print("resultData.data.getBytes() = ${result.data.getBytes().map((int e) => '0x${e.toRadixString(16)}').toList()}");
-          print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
-
-          // Transfer the pubkey
-          chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authRsaPubKeyAdbMessage.dataBuffer.buffer).toList());
-          chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
-          transferInfoData.direction = androidDeviceTest.outDescriptor.direction;
-          transferInfoData.endpoint = androidDeviceTest.outDescriptor.address;
-          print("abData.getBytes().length = ${abData.getBytes().length}");
-          transferInfoData.length = abData.getBytes().length;
-          transferInfoData.data = abData;
-          chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
-            print("resultData = ${resultData}");
-            print("resultData.resultCode = ${resultData.resultCode}");
-            print("resultData.data = ${resultData.data}");
-            print("resultData.data.getBytes() = ${resultData.data.getBytes().map((int e) => '0x${e.toRadixString(16)}')}");
-            print(UTF8.decode(resultData.data.getBytes(), allowMalformed: true));
-          });
-        });
-      });
-    });
+    androidDeviceTest.sendAuthSignedToken(hexStringPubKey).then((result) => print(result));
   });
 
   ButtonElement openurl = querySelector("#openurl");
