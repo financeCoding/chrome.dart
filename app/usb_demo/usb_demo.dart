@@ -80,9 +80,9 @@ final ADB_SUBCLASS = 0x42;
 final ADB_PROTOCOL = 0x1;
 
 // type for AUTH commands
-final AUTH_TOKEN = 1;
-final AUTH_SIGNATURE = 2;
-final AUTH_RSAPUBLICKEY = 3;
+final ADB_AUTH_TOKEN = 1;
+final ADB_AUTH_SIGNATURE = 2;
+final ADB_AUTH_RSAPUBLICKEY = 3;
 
 
 int checksum(ByteData data) {
@@ -168,7 +168,6 @@ class AdbMessage {
 
   void set command(int value) =>
       messageBuffer.setInt32(COMMAND_OFFSET, value, Endianness.LITTLE_ENDIAN);
-
 
   int get arg0 =>
       messageBuffer.getInt32(ARG0_OFFSET, Endianness.LITTLE_ENDIAN);
@@ -272,8 +271,82 @@ class AndroidDevice {
   chrome.InterfaceDescriptor adbInterface;
   chrome.EndpointDescriptor inDescriptor;
   chrome.EndpointDescriptor outDescriptor;
-  chrome.ConnectionHandle connectionHandle;
+  chrome.ConnectionHandle adbConnectionHandle;
   String deviceToken = "DEVICE TOKEN NOT SET";
+  int vendorId;
+  int productId;
+
+  AndroidDevice(this.vendorId, this.productId);
+
+  Future listDevices() {
+    // TODO: list all android devices
+  }
+
+  Future<bool> open() {
+    Completer<bool> completer = new Completer<bool>();
+    chrome.EnumerateDevicesOptions enumerateDevicesOptions =
+        new chrome.EnumerateDevicesOptions(vendorId: vendorId,  productId: vendorId);
+    // Get the devices with the following vendor id and product id.
+    chrome.usb.getDevices(enumerateDevicesOptions).then((List<chrome.Device> devices){
+      // For each device found iterate over devices to find specific device with
+      // adb class, subclass and protocol.
+      // TODO: how do we handle if we have mutiple devices.
+      devices.forEach((chrome.Device device) {
+        chrome.EnumerateDevicesAndRequestAccessOptions enumerateDevicesAndRequestAccessOptions =
+            new chrome.EnumerateDevicesAndRequestAccessOptions(vendorId: device.vendorId, productId: device.productId);
+        chrome.usb.findDevices(enumerateDevicesAndRequestAccessOptions).then((List<chrome.ConnectionHandle> connections) {
+          // For each connection handle iterate to find the adb class, subclass and protocol of the interface
+          connections.forEach((chrome.ConnectionHandle connectionHandle) {
+            // List interfaces for the connection handle.
+            chrome.usb.listInterfaces(connectionHandle).then((List<chrome.InterfaceDescriptor> interfaces) {
+              // For each interface, find the match for adb class, subclass and protocol
+              interfaces.forEach((chrome.InterfaceDescriptor interface) {
+                // check to make sure interface class, subclass and protocol match ADB
+                // avoid opening mass storage endpoints
+                if (interface.interfaceClass == ADB_CLASS &&
+                    interface.interfaceSubclass == ADB_SUBCLASS &&
+                    interface.interfaceProtocol == ADB_PROTOCOL) {
+                  adbInterface = interface;
+                  androidDevice = device;
+                  this.adbConnectionHandle = connectionHandle;
+                }
+
+                interface.endpoints.forEach((chrome.EndpointDescriptor endpointDescriptor) {
+                  // Find input & output descriptor
+                  if (endpointDescriptor.direction == chrome.Direction.IN &&
+                      interface.interfaceClass == ADB_CLASS &&
+                      interface.interfaceSubclass == ADB_SUBCLASS &&
+                      interface.interfaceProtocol == ADB_PROTOCOL) {
+                    inDescriptor = endpointDescriptor;
+                  } else if (endpointDescriptor.direction == chrome.Direction.OUT &&
+                      interface.interfaceClass == ADB_CLASS &&
+                      interface.interfaceSubclass == ADB_SUBCLASS &&
+                      interface.interfaceProtocol == ADB_PROTOCOL) {
+                    outDescriptor = endpointDescriptor;
+                  }
+                });
+              });
+
+              // Check if all objects got assigned.
+              if (adbInterface != null && androidDevice != null &&
+                  this.adbConnectionHandle != null && inDescriptor != null &&
+                  outDescriptor != null) {
+                completer.complete(true);
+              } else {
+                completer.complete(false);
+              }
+            });
+          });
+        });
+      });
+    });
+
+    return completer.future;
+  }
+
+  void handleMessage() {
+    // TODO: handle the messages that come in.
+  }
 
 }
 
@@ -285,6 +358,8 @@ void main() {
   chrome.EndpointDescriptor outDescriptor;
   chrome.ConnectionHandle connectionHandle;
   String deviceToken = "DEVICE TOKEN NOT SET";
+
+
 
   window.onKeyUp.listen((KeyboardEvent event) {
     if (event.keyCode == KeyCode.R) {
@@ -306,8 +381,8 @@ void main() {
         print("d.productId = ${d.productId}");
         print("d.vendorId = ${d.vendorId}");
 
-        var options = new chrome.EnumerateDevicesAndRequestAccessOptions(
-            vendorId: d.vendorId, productId: d.productId);
+        chrome.EnumerateDevicesAndRequestAccessOptions options =
+            new chrome.EnumerateDevicesAndRequestAccessOptions(vendorId: d.vendorId, productId: d.productId);
 
         chrome.usb.findDevices(options).then((List<chrome.ConnectionHandle> connections) {
           print("connections = ${connections}");
@@ -331,7 +406,9 @@ void main() {
 
                 //* check to make sure interface class, subclass and protocol match ADB
                 //* avoid opening mass storage endpoints
-                if (i.interfaceClass == ADB_CLASS && i.interfaceSubclass == ADB_SUBCLASS && i.interfaceProtocol == ADB_PROTOCOL) {
+                if (i.interfaceClass == ADB_CLASS &&
+                    i.interfaceSubclass == ADB_SUBCLASS &&
+                    i.interfaceProtocol == ADB_PROTOCOL) {
                   print("device found.");
                   adbInterface = i;
                   androidDevice = d;
@@ -349,10 +426,16 @@ void main() {
                   print("des.pollingInterval = ${des.pollingInterval}");
                   print("");
 
-                  if (des.direction == chrome.Direction.IN && i.interfaceClass == ADB_CLASS && i.interfaceSubclass == ADB_SUBCLASS && i.interfaceProtocol == ADB_PROTOCOL) {
-                    print("device found.");
+                  // Find input & output descriptor
+                  if (des.direction == chrome.Direction.IN &&
+                      i.interfaceClass == ADB_CLASS &&
+                      i.interfaceSubclass == ADB_SUBCLASS &&
+                      i.interfaceProtocol == ADB_PROTOCOL) {
                     inDescriptor = des;
-                  } else if (des.direction == chrome.Direction.OUT && i.interfaceClass == ADB_CLASS && i.interfaceSubclass == ADB_SUBCLASS && i.interfaceProtocol == ADB_PROTOCOL) {
+                  } else if (des.direction == chrome.Direction.OUT &&
+                      i.interfaceClass == ADB_CLASS &&
+                      i.interfaceSubclass == ADB_SUBCLASS &&
+                      i.interfaceProtocol == ADB_PROTOCOL) {
                     outDescriptor = des;
                   }
                 });
@@ -362,9 +445,6 @@ void main() {
               if (inDescriptor == null || outDescriptor == null) {
                 throw "Could not find device";
               }
-
-              // chrome.usb.requestAccess(device, interfaceId)
-              //return;
 
             });
           });
@@ -378,23 +458,9 @@ void main() {
   ButtonElement openit = querySelector("#openit");
   openit.onClick.listen((e) {
     print("opening device");
-//    chrome.usb.requestAccess(androidDevice, adbInterface.interfaceNumber).then((bool b) {
-//      print("requestAccess b = $b");
-//    });
 
     chrome.usb.claimInterface(connectionHandle, adbInterface.interfaceNumber).then((d) {
       print("d = $d");
-
-
-      // TODO: Add the info object stuff.
-
-      // send a connect command
-//      private void connect() {
-//        AdbMessage message = new AdbMessage();
-//        message.set(AdbMessage.A_CNXN, AdbMessage.A_VERSION, AdbMessage.MAX_PAYLOAD, "host::\0");
-//        message.write(this);
-//    }
-
 
 //  Send the messageBuffer then send the dataBuffer
 //      public boolean write(AdbDevice device) {
@@ -506,7 +572,7 @@ void main() {
     var hexStringPubKey = js.context.callMethod('getHexStringPublicKey', [publicKey]);
     print("hexStringPubKey = ${hexStringPubKey}");
 
-    AdbMessage authPubKeyAdbMessage = new AdbMessage(A_AUTH, AUTH_SIGNATURE, 0, hexStringPubKey);
+    AdbMessage authPubKeyAdbMessage = new AdbMessage(A_AUTH, ADB_AUTH_SIGNATURE, 0, hexStringPubKey);
 
     chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
     transferInfo.direction = outDescriptor.direction;
@@ -539,7 +605,7 @@ void main() {
         print(UTF8.decode(resultData.data.getBytes(), allowMalformed: true));
 
         // SEND OVER RSAPUBLICKEY(3)
-        AdbMessage authRsaPubKeyAdbMessage = new AdbMessage(A_AUTH, AUTH_RSAPUBLICKEY, 0, hexStringToString(hexStringPubKey));
+        AdbMessage authRsaPubKeyAdbMessage = new AdbMessage(A_AUTH, ADB_AUTH_RSAPUBLICKEY, 0, hexStringToString(hexStringPubKey));
 
         print("authRsaPubKeyAdbMessage = ${authRsaPubKeyAdbMessage}");
 
