@@ -139,7 +139,16 @@ String hexStringToString(String input) {
   return s;
 }
 
+class SystemIdentity {
+  // Can be of type "host", "bootloader", "device"
+  String systemType = "host";
 
+  String serialno = "";
+
+  String banner = "";
+
+  String toString() => "${systemType}:${serialno}:${banner}";
+}
 
 class AdbMessage {
   /*
@@ -285,7 +294,7 @@ class AndroidDevice {
   Future<bool> open() {
     Completer<bool> completer = new Completer<bool>();
     chrome.EnumerateDevicesOptions enumerateDevicesOptions =
-        new chrome.EnumerateDevicesOptions(vendorId: vendorId,  productId: vendorId);
+        new chrome.EnumerateDevicesOptions(vendorId: vendorId,  productId: productId);
     // Get the devices with the following vendor id and product id.
     chrome.usb.getDevices(enumerateDevicesOptions).then((List<chrome.Device> devices){
       // For each device found iterate over devices to find specific device with
@@ -344,123 +353,73 @@ class AndroidDevice {
     return completer.future;
   }
 
+  Future<chrome.TransferResultInfo> connect(SystemIdentity systemIdentity) {
+    return chrome.usb.claimInterface(adbConnectionHandle, adbInterface.interfaceNumber).then((_) {
+
+      AdbMessage adbMessage = new AdbMessage(A_CNXN, A_VERSION, MAX_PAYLOAD, systemIdentity.toString());
+
+      chrome.ArrayBuffer messageArrayBuffer =
+          new chrome.ArrayBuffer.fromBytes(new Uint8List.view(adbMessage.messageBuffer.buffer).toList());
+
+      chrome.GenericTransferInfo messageTransferInfo = new chrome.GenericTransferInfo()
+      ..direction = outDescriptor.direction
+      ..endpoint = outDescriptor.address
+      ..length = messageArrayBuffer.getBytes().length
+      ..data = messageArrayBuffer;
+
+      // Transfer connect message
+      return chrome.usb.bulkTransfer(adbConnectionHandle, messageTransferInfo).then((chrome.TransferResultInfo messageResult) {
+        if (messageResult.resultCode != 0) {
+          return messageResult;
+        }
+
+        chrome.ArrayBuffer dataArrayBuffer =
+            new chrome.ArrayBuffer.fromBytes(new Uint8List.view(adbMessage.dataBuffer.buffer).toList());
+
+        chrome.GenericTransferInfo dataTransferInfo = new chrome.GenericTransferInfo()
+        ..direction = outDescriptor.direction
+        ..endpoint = outDescriptor.address
+        ..length = dataArrayBuffer.getBytes().length
+        ..data = dataArrayBuffer;
+
+        // Transfer connect data
+        return chrome.usb.bulkTransfer(adbConnectionHandle, dataTransferInfo).then((chrome.TransferResultInfo dataResult) {
+          return dataResult;
+        });
+      });
+    });
+  }
+
+  readMessage() {
+    // TODO: how can we keep this readMessage continue to read after a read
+    // and place the results in a queue.
+    chrome.GenericTransferInfo readTransferInfo = new chrome.GenericTransferInfo()
+    ..direction = inDescriptor.direction
+    ..endpoint = inDescriptor.address
+    ..length = MESSAGE_SIZE_PAYLOAD;
+
+    chrome.usb.bulkTransfer(adbConnectionHandle, readTransferInfo).then((chrome.TransferResultInfo readResult) {
+
+      // Read back a mMessageBuffer for AUTH response
+      AdbMessage readAdbMessage = new AdbMessage.fromMessageBufferBytes(readResult.data.getBytes());
+      chrome.GenericTransferInfo readDataTransferInfo = new chrome.GenericTransferInfo()
+      ..direction = inDescriptor.direction
+      ..endpoint = inDescriptor.address
+      ..length = readAdbMessage.dataLength;
+
+      chrome.usb.bulkTransfer(adbConnectionHandle, readDataTransferInfo).then((chrome.TransferResultInfo readDataResult) {
+        // TODO: hanlde the type of message that was read in, AUTH message might send a device token.
+
+        deviceToken = UTF8.decode(readDataResult.data.getBytes(), allowMalformed: true);
+      });
+    });
+  }
+
   void handleMessage() {
     // TODO: handle the messages that come in.
   }
 
 }
-
-void main() {
-
-  chrome.Device androidDevice;
-  chrome.InterfaceDescriptor adbInterface;
-  chrome.EndpointDescriptor inDescriptor;
-  chrome.EndpointDescriptor outDescriptor;
-  chrome.ConnectionHandle connectionHandle;
-  String deviceToken = "DEVICE TOKEN NOT SET";
-
-
-
-  window.onKeyUp.listen((KeyboardEvent event) {
-    if (event.keyCode == KeyCode.R) {
-      chrome.runtime.reload();
-    }
-  });
-
-  print("hello world");
-  ButtonElement be = querySelector("#clickit");
-  be.onClick.listen((e) {
-    //"vendorId": 6353, "productId": 20194
-    chrome.EnumerateDevicesOptions o =
-        new chrome.EnumerateDevicesOptions(vendorId: 6353,  productId: 20194);
-
-    chrome.usb.getDevices(o).then((List<chrome.Device> devices){
-      print("devices = ${devices}");
-      devices.forEach((chrome.Device d){
-        print("d.device = ${d.device}");
-        print("d.productId = ${d.productId}");
-        print("d.vendorId = ${d.vendorId}");
-
-        chrome.EnumerateDevicesAndRequestAccessOptions options =
-            new chrome.EnumerateDevicesAndRequestAccessOptions(vendorId: d.vendorId, productId: d.productId);
-
-        chrome.usb.findDevices(options).then((List<chrome.ConnectionHandle> connections) {
-          print("connections = ${connections}");
-          connections.forEach((chrome.ConnectionHandle ch) {
-            print("ch = $ch");
-            print("ch.handle = ${ch.handle}");
-            print("ch.productId = ${ch.productId}");
-            print("ch.vendorId = ${ch.vendorId}");
-
-            chrome.usb.listInterfaces(ch).then((List<chrome.InterfaceDescriptor> interfaces) {
-              print("interfaces = ${interfaces}");
-              interfaces.forEach((chrome.InterfaceDescriptor i) {
-                print("i = ${i}");
-                print("i.interfaceNumber = ${i.interfaceNumber}");
-                print("i.alternateSetting = ${i.alternateSetting}");
-                print("i.interfaceClass = ${i.interfaceClass}");
-                print("i.interfaceSubclass = ${i.interfaceSubclass}");
-                print("i.interfaceProtocol = ${i.interfaceProtocol}");
-                print("i.description = ${i.description}");
-                print("i.endpoints = ${i.endpoints}");
-
-                //* check to make sure interface class, subclass and protocol match ADB
-                //* avoid opening mass storage endpoints
-                if (i.interfaceClass == ADB_CLASS &&
-                    i.interfaceSubclass == ADB_SUBCLASS &&
-                    i.interfaceProtocol == ADB_PROTOCOL) {
-                  print("device found.");
-                  adbInterface = i;
-                  androidDevice = d;
-                  connectionHandle = ch;
-                }
-
-                i.endpoints.forEach((chrome.EndpointDescriptor des) {
-                  print("des = ${des}");
-                  print("des.address = ${des.address}");
-                  print("des.type = ${des.type}");
-                  print("des.direction = ${des.direction}");
-                  print("des.maximumPacketSize = ${des.maximumPacketSize}");
-                  //print("des.synchronization = ${des.synchronization}");
-                  print("des.usage = ${des.usage}");
-                  print("des.pollingInterval = ${des.pollingInterval}");
-                  print("");
-
-                  // Find input & output descriptor
-                  if (des.direction == chrome.Direction.IN &&
-                      i.interfaceClass == ADB_CLASS &&
-                      i.interfaceSubclass == ADB_SUBCLASS &&
-                      i.interfaceProtocol == ADB_PROTOCOL) {
-                    inDescriptor = des;
-                  } else if (des.direction == chrome.Direction.OUT &&
-                      i.interfaceClass == ADB_CLASS &&
-                      i.interfaceSubclass == ADB_SUBCLASS &&
-                      i.interfaceProtocol == ADB_PROTOCOL) {
-                    outDescriptor = des;
-                  }
-                });
-              });
-
-              // Check that inDescriptor and outDescriptor not null and try to open device
-              if (inDescriptor == null || outDescriptor == null) {
-                throw "Could not find device";
-              }
-
-            });
-          });
-        });
-      });
-
-
-    });
-  });
-
-  ButtonElement openit = querySelector("#openit");
-  openit.onClick.listen((e) {
-    print("opening device");
-
-    chrome.usb.claimInterface(connectionHandle, adbInterface.interfaceNumber).then((d) {
-      print("d = $d");
 
 //  Send the messageBuffer then send the dataBuffer
 //      public boolean write(AdbDevice device) {
@@ -487,101 +446,48 @@ void main() {
 //        }
 //    }
 
+void main() {
 
-      String data = "host::";
-      AdbMessage adbMessage = new AdbMessage(A_CNXN, A_VERSION, MAX_PAYLOAD, data);
-      print("adbMessage = ${adbMessage}");
+  AndroidDevice androidDeviceTest = new AndroidDevice(6353,  20194);
 
-      chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
-      transferInfo.direction = outDescriptor.direction;
-      transferInfo.endpoint = outDescriptor.address;
-      chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(adbMessage.messageBuffer.buffer).toList());
-      print("ab.getBytes().length = ${ab.getBytes().length}");
-      transferInfo.length = ab.getBytes().length;
-      transferInfo.data = ab;
+  window.onKeyUp.listen((KeyboardEvent event) {
+    if (event.keyCode == KeyCode.R) {
+      chrome.runtime.reload();
+    }
+  });
 
-      chrome.usb.bulkTransfer(connectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
-        print("result = ${result}");
-        print("result.resultCode = ${result.resultCode}");
-        print("result.data = ${result.data}");
-        print("result.data.getBytes() = ${result.data.getBytes()}");
-        print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
+  print("hello world");
+  ButtonElement be = querySelector("#clickit");
+  be.onClick.listen((e) => androidDeviceTest.open()
+      .then((result) => print("result = $result")));
 
-        chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(adbMessage.dataBuffer.buffer).toList());
-        chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
-        transferInfoData.direction = outDescriptor.direction;
-        transferInfoData.endpoint = outDescriptor.address;
-
-        print("abData.getBytes().length = ${abData.getBytes().length}");
-        transferInfoData.length = abData.getBytes().length;
-        transferInfoData.data = abData;
-        chrome.usb.bulkTransfer(connectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
-          print("resultData = ${resultData}");
-          print("resultData.resultCode = ${resultData.resultCode}");
-          print("resultData.data = ${resultData.data}");
-          print("resultData.data.getBytes() = ${resultData.data.getBytes().map((int e) => '0x${e.toRadixString(16)}')}");
-          print(UTF8.decode(resultData.data.getBytes(), allowMalformed: true));
-        });
-      });
-
-    });
+  ButtonElement openit = querySelector("#openit");
+  openit.onClick.listen((e) {
+    print("opening device");
+    androidDeviceTest.connect(new SystemIdentity())
+      .then((chrome.TransferResultInfo result) => print("result = $result"));
   });
 
   ButtonElement readitButton = querySelector("#readit");
-  readitButton.onClick.listen((e) {
-    chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
-    transferInfo.direction = inDescriptor.direction;
-    transferInfo.endpoint = inDescriptor.address;
-    transferInfo.length = MESSAGE_SIZE_PAYLOAD;
-    chrome.usb.bulkTransfer(connectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
-      print("result = ${result}");
-      print("result.resultCode = ${result.resultCode}");
-      print("result.data = ${result.data}");
-      print("result.data.getBytes() = ${result.data.getBytes()}");
-      print("resultData.data.getBytes() = ${result.data.getBytes().map((int e) => '0x${e.toRadixString(16)}').toList()}");
-      print(UTF8.decode(result.data.getBytes(), allowMalformed: true));
-
-      // Read back a mMessageBuffer for AUTH response
-      AdbMessage readAdbMessage = new AdbMessage.fromMessageBufferBytes(result.data.getBytes());
-
-      print("readAdbMessage = ${readAdbMessage}");
-
-      chrome.GenericTransferInfo readDataTransferInfo = new chrome.GenericTransferInfo();
-      readDataTransferInfo.direction = inDescriptor.direction;
-      readDataTransferInfo.endpoint = inDescriptor.address;
-      readDataTransferInfo.length = readAdbMessage.dataLength;
-      chrome.usb.bulkTransfer(connectionHandle, readDataTransferInfo).then((chrome.TransferResultInfo resultWithToken) {
-        print("token data next step... ");
-        print("resultWithToken = ${resultWithToken}");
-        print("resultWithToken.resultCode = ${resultWithToken.resultCode}");
-        print("resultWithToken.data = ${resultWithToken.data}");
-        print("resultWithToken.data.getBytes() = ${resultWithToken.data.getBytes()}");
-        print("resultWithToken.data.getBytes() = ${resultWithToken.data.getBytes().map((int e) => '0x${e.toRadixString(16)}').toList()}");
-        print(UTF8.decode(resultWithToken.data.getBytes(), allowMalformed: true));
-        deviceToken = UTF8.decode(resultWithToken.data.getBytes(), allowMalformed: true);
-
-        // TODO: decode into AdbMessage.loadDataBuffer();
-      });
-    });
-  });
+  readitButton.onClick.listen((e) => androidDeviceTest.readMessage());
 
   ButtonElement signit = querySelector("#signit");
   signit.onClick.listen((e) {
-    var sig  = js.context.callMethod('doAdbSign', [privateKey, deviceToken]);
-    print("'${deviceToken}' sig = ${sig}");
+    var sig  = js.context.callMethod('doAdbSign', [privateKey, androidDeviceTest.deviceToken]);
+    print("'${androidDeviceTest.deviceToken}' sig = ${sig}");
     var hexStringPubKey = js.context.callMethod('getHexStringPublicKey', [publicKey]);
     print("hexStringPubKey = ${hexStringPubKey}");
 
     AdbMessage authPubKeyAdbMessage = new AdbMessage(A_AUTH, ADB_AUTH_SIGNATURE, 0, hexStringPubKey);
 
     chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
-    transferInfo.direction = outDescriptor.direction;
-    transferInfo.endpoint = outDescriptor.address;
+    transferInfo.direction = androidDeviceTest.outDescriptor.direction;
+    transferInfo.endpoint = androidDeviceTest.outDescriptor.address;
     chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authPubKeyAdbMessage.messageBuffer.buffer).toList());
     print("ab.getBytes().length = ${ab.getBytes().length}");
     transferInfo.length = ab.getBytes().length;
     transferInfo.data = ab;
-    chrome.usb.bulkTransfer(connectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
+    chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
       print("result = ${result}");
       print("result.resultCode = ${result.resultCode}");
       print("result.data = ${result.data}");
@@ -592,12 +498,12 @@ void main() {
       // Transfer the signed data
       chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authPubKeyAdbMessage.dataBuffer.buffer).toList());
       chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
-      transferInfoData.direction = outDescriptor.direction;
-      transferInfoData.endpoint = outDescriptor.address;
+      transferInfoData.direction = androidDeviceTest.outDescriptor.direction;
+      transferInfoData.endpoint = androidDeviceTest.outDescriptor.address;
       print("abData.getBytes().length = ${abData.getBytes().length}");
       transferInfoData.length = abData.getBytes().length;
       transferInfoData.data = abData;
-      chrome.usb.bulkTransfer(connectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
+      chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
         print("resultData = ${resultData}");
         print("resultData.resultCode = ${resultData.resultCode}");
         print("resultData.data = ${resultData.data}");
@@ -610,13 +516,13 @@ void main() {
         print("authRsaPubKeyAdbMessage = ${authRsaPubKeyAdbMessage}");
 
         chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
-        transferInfo.direction = outDescriptor.direction;
-        transferInfo.endpoint = outDescriptor.address;
+        transferInfo.direction = androidDeviceTest.outDescriptor.direction;
+        transferInfo.endpoint = androidDeviceTest.outDescriptor.address;
         chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authRsaPubKeyAdbMessage.messageBuffer.buffer).toList());
         print("ab.getBytes().length = ${ab.getBytes().length}");
         transferInfo.length = ab.getBytes().length;
         transferInfo.data = ab;
-        chrome.usb.bulkTransfer(connectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
+        chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
           print("result = ${result}");
           print("result.resultCode = ${result.resultCode}");
           print("result.data = ${result.data}");
@@ -627,12 +533,12 @@ void main() {
           // Transfer the pubkey
           chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(authRsaPubKeyAdbMessage.dataBuffer.buffer).toList());
           chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
-          transferInfoData.direction = outDescriptor.direction;
-          transferInfoData.endpoint = outDescriptor.address;
+          transferInfoData.direction = androidDeviceTest.outDescriptor.direction;
+          transferInfoData.endpoint = androidDeviceTest.outDescriptor.address;
           print("abData.getBytes().length = ${abData.getBytes().length}");
           transferInfoData.length = abData.getBytes().length;
           transferInfoData.data = abData;
-          chrome.usb.bulkTransfer(connectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
+          chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
             print("resultData = ${resultData}");
             print("resultData.resultCode = ${resultData.resultCode}");
             print("resultData.data = ${resultData.data}");
@@ -650,13 +556,13 @@ void main() {
     AdbMessage openAdbMessage = new AdbMessage(A_OPEN, 2, 0, data);
 
     chrome.GenericTransferInfo transferInfo = new chrome.GenericTransferInfo();
-    transferInfo.direction = outDescriptor.direction;
-    transferInfo.endpoint = outDescriptor.address;
+    transferInfo.direction = androidDeviceTest.outDescriptor.direction;
+    transferInfo.endpoint = androidDeviceTest.outDescriptor.address;
     chrome.ArrayBuffer ab = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(openAdbMessage.messageBuffer.buffer).toList());
     print("ab.getBytes().length = ${ab.getBytes().length}");
     transferInfo.length = ab.getBytes().length;
     transferInfo.data = ab;
-    chrome.usb.bulkTransfer(connectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
+    chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfo).then((chrome.TransferResultInfo result) {
       print("result = ${result}");
       print("result.resultCode = ${result.resultCode}");
       print("result.data = ${result.data}");
@@ -667,12 +573,12 @@ void main() {
       // Transfer the data
       chrome.ArrayBuffer abData = new chrome.ArrayBuffer.fromBytes(new Uint8List.view(openAdbMessage.dataBuffer.buffer).toList());
       chrome.GenericTransferInfo transferInfoData = new chrome.GenericTransferInfo();
-      transferInfoData.direction = outDescriptor.direction;
-      transferInfoData.endpoint = outDescriptor.address;
+      transferInfoData.direction = androidDeviceTest.outDescriptor.direction;
+      transferInfoData.endpoint = androidDeviceTest.outDescriptor.address;
       print("abData.getBytes().length = ${abData.getBytes().length}");
       transferInfoData.length = abData.getBytes().length;
       transferInfoData.data = abData;
-      chrome.usb.bulkTransfer(connectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
+      chrome.usb.bulkTransfer(androidDeviceTest.adbConnectionHandle, transferInfoData).then((chrome.TransferResultInfo resultData) {
         print("resultData = ${resultData}");
         print("resultData.resultCode = ${resultData.resultCode}");
         print("resultData.data = ${resultData.data}");
